@@ -10,18 +10,20 @@ likelihood = np.loadtxt('likelihood.txt')
 bird_likelihood_func = likelihood[0]
 plane_likelihood_func = likelihood[1]
 
-# desconstruct pdf to make a bird_likelihood fourier continuous function-------------------------------------------------------------------------
+# desconstruct pdf to make a bird_likelihood fourier continuous function----------------------------------------------------------------------
 class FourierFunction:
-    def __init__(self, likelihood_func):
-        self.x = np.arange(len(likelihood_func))
+    def __init__(self, data):
+        self.x = np.arange(len(data))
+        self.data = data
 
-        # decompose datapoints into set of sin waves
-        fft_values = fft(likelihood_func)
-        frequencies = fftfreq(len(likelihood_func), d=1)
-        num_frequencies = 1000
+        # Decompose data into Fourier components
+        fft_values = fft(data)
+        frequencies = fftfreq(len(data), d=1)  # Assuming time step of 1 second
+        num_frequencies = 1000  # Limit to the most significant frequencies
         magnitude = np.abs(fft_values)
         sorted_indices = np.argsort(magnitude)[::-1]
         dominant_indices = sorted_indices[:num_frequencies]
+
         self.amplitudes = []
         self.phases = []
         self.frequencies_selected = []
@@ -30,92 +32,59 @@ class FourierFunction:
             self.phases.append(np.angle(fft_values[idx]))
             self.frequencies_selected.append(frequencies[idx])
 
-        self.total_area = sum(
-            max(sum(amplitude * np.cos(2 * np.pi * frequency * i + phase)
-                    for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases)), 0)
-            for i in self.x
-        )
+        # Total area for normalization
+        self.total_area = sum(max(sum(amplitude * np.cos(2 * np.pi * frequency * i + phase) 
+            for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases)),0) 
+            for i in self.x)
 
-    # use the decomposed sin waves to reconstruct the signal, effectively make a smooth function over all the datapoints
-    def prob(self, query):
+    def velocity(self, query):
+        """Reconstruct velocity using Fourier components."""
         result = 0
         for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
             result += amplitude * np.cos(2 * np.pi * frequency * query + phase)
-        result = max(result, 0)
+        result = max(result, 0)  # Ensure non-negative velocity
+        return result
 
-        # Return the normalized value
-        return result / self.total_area
+    def acceleration(self, query):
+        """Compute acceleration as the time derivative of velocity."""
+        result = 0
+        for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
+            result += -2 * np.pi * frequency * amplitude * np.sin(2 * np.pi * frequency * query + phase)
+        return result
+
+    def show_velocity(self):
+        """Show the overlay of the original data and Fourier approximation."""
+        fourier_vals = [self.velocity(x) for x in self.x]
+        fourier_vals = (fourier_vals - np.min(fourier_vals)) / (np.sum(fourier_vals))
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.x, self.data, label="datapoints", marker='o', linestyle="none")
+        plt.plot(self.x, fourier_vals, label="fourier approximation", linestyle="-")
+        plt.xlabel("Index")
+        plt.ylabel("Value")
+        plt.title("Fourier Approximation Overlay")
+        plt.legend()
+        plt.show()
+
+    def show_accel(self):
+        """Show the overlay of the original data and Fourier approximation."""
+        fourier_vals = [self.acceleration(x) for x in self.x]
+        fourier_vals = (fourier_vals - np.min(fourier_vals)) / (np.sum(fourier_vals))
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.x, fourier_vals, label="fourier approximation", linestyle="-")
+        plt.xlabel("measurements")
+        plt.ylabel("Value")
+        plt.title("fourier approximation of acceleration from velocities")
+        plt.legend()
+        plt.show()
 
 # setting up the likelyhood probability functions
-bird_func = FourierFunction(bird_likelihood_func)
-plane_func = FourierFunction(plane_likelihood_func) 
+bird_velo_likelihood = FourierFunction(bird_likelihood_func)
+plane_velo_likelihood = FourierFunction(plane_likelihood_func)
+bird_velo_likelihood.show_velocity()
+plane_velo_likelihood.show_accel()
 
-# preprocessing for train data--------------------------------------------------------------------------------------------------------
-train_data = np.loadtxt("dataset.txt")
-
-bird_train = train_data[:10]
-plane_train = train_data[10:]
-
-# replace Nan with mean of each track
-bird_train = np.nan_to_num(bird_train, nan=np.nanmean(bird_train))
-plane_train = np.nan_to_num(plane_train, nan=np.nanmean(plane_train))
-
-# set the priors
-bird_prior = 0.5
-plane_prior = 0.5
-
-# preprocessing for test data--------------------------------------------------------------------------------------------------------------------------------------
-test_data = np.loadtxt("testing.txt")
-
-def classify_velocity_with_transition(velocity, prev_class=None, transition_prob=0.7):
-    # Calculate likelihoods for bird and plane
-    bird_likelihood = bird_func.prob(velocity)  # P(velocity | bird)
-    plane_likelihood = plane_func.prob(velocity)  # P(velocity | plane)
-
-    # Calculate initial posteriors
-    bird_posterior = bird_likelihood * 0.5  # P(bird) = 0.5
-    plane_posterior = plane_likelihood * 0.5  # P(plane) = 0.5
-
-    # Adjust posteriors based on transition probabilities
-    if prev_class is not None:
-        if prev_class == "bird":
-            bird_posterior *= transition_prob  # Favor staying in "bird"
-            plane_posterior *= (1 - transition_prob)  # Penalize switching to "plane"
-        elif prev_class == "plane":
-            plane_posterior *= transition_prob  # Favor staying in "plane"
-            bird_posterior *= (1 - transition_prob)  # Penalize switching to "bird"
-
-    # Normalize posteriors
-    total_posterior = bird_posterior + plane_posterior
-    bird_posterior /= total_posterior
-    plane_posterior /= total_posterior
-
-    # Classify based on higher posterior
-    return ("bird", bird_posterior) if bird_posterior > plane_posterior else ("plane", plane_posterior)
-
-def classify_object(velocities, transition_prob=0.7):
-    classifications = []
-    prev_class = None
-
-    # Classify each velocity
-    for velocity in velocities:
-        current_class, _ = classify_velocity_with_transition(velocity, prev_class, transition_prob)
-        classifications.append(current_class)
-        prev_class = current_class  # Update for the next velocity
-
-    # Final classification: majority vote
-    final_class = "bird" if classifications.count("bird") > classifications.count("plane") else "plane"
-    return classifications, final_class
-
-# Example input: velocities for one object (600 measurements)
-object_velocities = [310, 420, 250, 620, 500, ...]  # Replace with actual velocity data
-
-# Classify the object
-for i in range(10):
-    sample_classes, final_class = classify_object(test_data[i])
-
-        # Print results
-    print(f"Final class for the object: {final_class}")
 
 
 
