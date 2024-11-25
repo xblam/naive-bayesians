@@ -10,10 +10,14 @@ This is my implementation of naive bayesian models.
 
 ## Steps
 
-# Preprocessing
-- formatted the data into np arrays (for ease of computation) and split the nessecary datasets into bird and plane parts
-- initial reaction was just to fit a gaussian distribution to the data, but this was not easy to do
-- since I have been working with fourier transformations recently I thought it would be a good idea to get a re
+# fitting line to PDF
+- the first big issue encountered was that there was no distribution function provided. Instead, what we got were data points which indicated the probability that objects going at x speed was a bird or plane.
+- althoguh rounding the input velocities would have worked fine, it would still be better for us to fit a curve to the datapoints for ease of computation, and for future implementations.
+- unfortunately, the functions provided do not follow simple distributions like gaussian or poisson. The best fit was a set of polynomial functions, but this fit was still unsatisfactory.
+- but with this in mind, we can use fourier transformations
+
+# Fourier Transformations
+- we can use fourier transforms to fit a line to the datapoints.
 
 First I will just make a naive bayesian model, then I will train the model on the 10 airplane and 10 bird samples, and then I will run the trained sample on the actual data and see what kind of results I get in return.
 

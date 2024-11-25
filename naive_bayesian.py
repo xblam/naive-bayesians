@@ -3,34 +3,12 @@ from scipy.stats import norm
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
 
-# easiest way to load up data into numpy
-test = np.loadtxt('testing.txt')
 
-# split up the likelihoods and train data into that of birds and planes
+# TAKE THE LIKELIHOOD FUNCTIONS AND FIT A FOURNIER FUNCTION OVER THEM TO GRAB PROBABILITY OF FLOAT VALUES------------------------------------
 likelihood = np.loadtxt('likelihood.txt')
-# MAKE SURE THIS IS (400,) 1D ARRAY)----------------------------------------------------------------------------------------------------
-bird_likelihood = likelihood[0]
-plane_likelihood = likelihood[1]
-
-data = np.loadtxt("dataset.txt")
-bird_train = data[:10]
-plane_train = data[10:]
-
-
-
-#SHAPES ALREADY VERIFIED---------------------------------------------------------------------------------------------------------------
-
-
-
-# set the priors
-bird_prior = 0.5
-plane_prior = 0.5
-
-# we can actually just use fourier transforms to fit a function to the data. This way I dont need to round the data, to hopefully get a
-# better estimate (even though I doubt it matters)
-
-
-
+# MAKE SURE THIS IS (400,) 1D ARRAY)d
+bird_likelihood_func = likelihood[0]
+plane_likelihood_func = likelihood[1]
 
 # desconstruct pdf to make a bird_likelihood fourier continuous function-------------------------------------------------------------------------
 class FourierFunction:
@@ -52,58 +30,118 @@ class FourierFunction:
             self.phases.append(np.angle(fft_values[idx]))
             self.frequencies_selected.append(frequencies[idx])
 
-    # use the decomposed sin waves to reconstruct the signal, effectively make a smooth function over all the datapoints
-    def probability(self, query):
-        result = 0
-        for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
-            result += amplitude * np.cos(2 * np.pi * frequency * query + phase)
-        result = max(result, 0)
-
-        total_area = sum(
+        self.total_area = sum(
             max(sum(amplitude * np.cos(2 * np.pi * frequency * i + phase)
                     for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases)), 0)
             for i in self.x
         )
 
+    # use the decomposed sin waves to reconstruct the signal, effectively make a smooth function over all the datapoints
+    def prob(self, query):
+        result = 0
+        for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
+            result += amplitude * np.cos(2 * np.pi * frequency * query + phase)
+        result = max(result, 0)
+
         # Return the normalized value
-        return result / total_area
+        return result / self.total_area
 
-bird_func = FourierFunction(bird_likelihood)
+# setting up the likelyhood probability functions
+bird_func = FourierFunction(bird_likelihood_func)
+plane_func = FourierFunction(plane_likelihood_func) 
 
-print(bird_func.probability(200))
+# preprocessing for train data--------------------------------------------------------------------------------------------------------
+train_data = np.loadtxt("dataset.txt")
 
-# # Test the Fourier function
-# query_speed = 100  # Replace with the desired speed
-# result = normalized_fourier_function(query_speed)
-# print(f"Probability at speed {query_speed} km/h: {result:.4f}")
+bird_train = train_data[:10]
+plane_train = train_data[10:]
+
+# replace Nan with mean of each track
+bird_train = np.nan_to_num(bird_train, nan=np.nanmean(bird_train))
+plane_train = np.nan_to_num(plane_train, nan=np.nanmean(plane_train))
+
+# set the priors
+bird_prior = 0.5
+plane_prior = 0.5
+
+# preprocessing for test data--------------------------------------------------------------------------------------------------------------------------------------
+test_data = np.loadtxt("testing.txt")
+
+def classify_velocity_with_transition(velocity, prev_class=None, transition_prob=0.7):
+    # Calculate likelihoods for bird and plane
+    bird_likelihood = bird_func.prob(velocity)  # P(velocity | bird)
+    plane_likelihood = plane_func.prob(velocity)  # P(velocity | plane)
+
+    # Calculate initial posteriors
+    bird_posterior = bird_likelihood * 0.5  # P(bird) = 0.5
+    plane_posterior = plane_likelihood * 0.5  # P(plane) = 0.5
+
+    # Adjust posteriors based on transition probabilities
+    if prev_class is not None:
+        if prev_class == "bird":
+            bird_posterior *= transition_prob  # Favor staying in "bird"
+            plane_posterior *= (1 - transition_prob)  # Penalize switching to "plane"
+        elif prev_class == "plane":
+            plane_posterior *= transition_prob  # Favor staying in "plane"
+            bird_posterior *= (1 - transition_prob)  # Penalize switching to "bird"
+
+    # Normalize posteriors
+    total_posterior = bird_posterior + plane_posterior
+    bird_posterior /= total_posterior
+    plane_posterior /= total_posterior
+
+    # Classify based on higher posterior
+    return ("bird", bird_posterior) if bird_posterior > plane_posterior else ("plane", plane_posterior)
+
+def classify_object(velocities, transition_prob=0.7):
+    classifications = []
+    prev_class = None
+
+    # Classify each velocity
+    for velocity in velocities:
+        current_class, _ = classify_velocity_with_transition(velocity, prev_class, transition_prob)
+        classifications.append(current_class)
+        prev_class = current_class  # Update for the next velocity
+
+    # Final classification: majority vote
+    final_class = "bird" if classifications.count("bird") > classifications.count("plane") else "plane"
+    return classifications, final_class
+
+# Example input: velocities for one object (600 measurements)
+object_velocities = [310, 420, 250, 620, 500, ...]  # Replace with actual velocity data
+
+# Classify the object
+for i in range(10):
+    sample_classes, final_class = classify_object(test_data[i])
+
+        # Print results
+    print(f"Final class for the object: {final_class}")
 
 
-# # Test the Fourier function
-# query_speed = 100  # Replace with the desired speed
-# result = normalized_fourier_function(query_speed)
-# print(f"Probability at speed {query_speed} km/h: {result:.4f}")
 
-# # Plot the function over a range of speeds
-# import matplotlib.pyplot as plt
-# speeds = np.linspace(0, len(y), 1000)  # Generate 1000 points between 0 and the maximum index
-# values = [normalized_fourier_function(s) for s in speeds]
+# plotting fourier function vs original data ----------------------------------------------------------------------------------------------
 
-# plt.figure(figsize=(12, 6))
-# plt.plot(speeds, values, label="Fourier Function", color="green")
-# plt.title("Fourier Function as a Probability Distribution")
-# plt.xlabel("Speed")
-# plt.ylabel("Probability")
-# plt.grid(True)
+# x_vals = np.arange(len(bird_likelihood))
+# fourier_vals = [bird_func.prob(x) for x in x_vals]
+
+# # plot the transformation between the data and fitted function
+# plt.figure(figsize=(10, 6))
+# plt.plot(x_vals, bird_likelihood, label="bird data", marker='o', linestyle="none")
+# plt.plot(x_vals, fourier_vals, label="fourier function", linestyle="-")
+# plt.xlabel("speed")
+# plt.ylabel("likelihood")
+# plt.title("bird fourier approx laid over original function")
 # plt.legend()
 # plt.show()
 
+# x_vals = np.arange(len(plane_likelihood_func))
+# fourier_vals = [plane_func.prob(x) for x in x_vals]
 
-# # representation of the pdf of the bird speeds
-# plt.figure(figsize=(10, 6)) 
-# plt.plot(bird_likelihood, marker="o", linestyle="", markersize=3, label="Data Points")
-# plt.title("Visualization of (1, 400) Array")
-# plt.xlabel("Index")
-# plt.ylabel("Value")
+# plt.figure(figsize=(10, 6))
+# plt.plot(x_vals, plane_likelihood_func, label="plane data", marker='o', linestyle="none")
+# plt.plot(x_vals, fourier_vals, label="fourier function", linestyle="-")
+# plt.xlabel("speed")
+# plt.ylabel("likelihood")
+# plt.title("plane fourier approx laid over original function")
 # plt.legend()
-# plt.grid(True)
 # plt.show()
