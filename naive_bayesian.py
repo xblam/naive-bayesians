@@ -2,7 +2,16 @@ import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
-
+''' 
+THOUGHT PROCESS:
+* already have the datapoints for the pdf of velocity, so just need to fit the fourier curve to the data
+* use the dataset.txt of values to create a pdf for acceleration, which can be done just by taking the differential, of the velocity recordings
+    - do not need to do this for velocity since we are already given the pdf
+    - also make sure to get rid of Nan values
+* fit the fourier curve to the acceleration
+* now run naive bayesian taking into account both the velocity and accelereation likelihoods
+* profit
+'''
 
 # TAKE THE LIKELIHOOD FUNCTIONS AND FIT A FOURNIER FUNCTION OVER THEM TO GRAB PROBABILITY OF FLOAT VALUES------------------------------------
 likelihood = np.loadtxt('likelihood.txt')
@@ -10,16 +19,18 @@ likelihood = np.loadtxt('likelihood.txt')
 bird_likelihood_func = likelihood[0]
 plane_likelihood_func = likelihood[1]
 
-# desconstruct pdf to make a bird_likelihood fourier continuous function----------------------------------------------------------------------
+# takes a set of pdf datapoints and makes them into a smooth pdf function
 class FourierFunction:
     def __init__(self, data):
         self.x = np.arange(len(data))
         self.data = data
 
+    def fournier_analysis(self)
+
         # Decompose data into Fourier components
-        fft_values = fft(data)
-        frequencies = fftfreq(len(data), d=1)  # Assuming time step of 1 second
-        num_frequencies = 1000  # Limit to the most significant frequencies
+        fft_values = fft(self.data)
+        frequencies = fftfreq(len(self.data), d=1)  # in our data the step time is 1 second. Change if needed
+        num_frequencies = 1000  # change if want more fidelity but 1000 should be fine
         magnitude = np.abs(fft_values)
         sorted_indices = np.argsort(magnitude)[::-1]
         dominant_indices = sorted_indices[:num_frequencies]
@@ -32,17 +43,17 @@ class FourierFunction:
             self.phases.append(np.angle(fft_values[idx]))
             self.frequencies_selected.append(frequencies[idx])
 
-        # Total area for normalization
+        # use total area to normalize this
         self.total_area = sum(max(sum(amplitude * np.cos(2 * np.pi * frequency * i + phase) 
             for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases)),0) 
             for i in self.x)
 
-    def velocity(self, query):
-        """Reconstruct velocity using Fourier components."""
         result = 0
+
+        # we are not ensuring non-negativity, but should be fine
         for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
             result += amplitude * np.cos(2 * np.pi * frequency * query + phase)
-        result = max(result, 0)  # Ensure non-negative velocity
+        
         return result
 
     def acceleration(self, query):
