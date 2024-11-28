@@ -75,7 +75,7 @@ class FourierFunction:
 
 # takes in datapoints of velocity and then returns datapoints of acceleration
 def get_accel_data(dataset):
-    accel_data = dataset.apply(lambda row: row.diff(), axis=1).round(0) # differentiate, round integers
+    accel_data = dataset.apply(lambda row: row.diff(), axis=1) # differentiate
     accel_data = accel_data.fillna(0) # fill na with 0
     return accel_data
 
@@ -83,44 +83,89 @@ def get_accel_data(dataset):
 def get_accel_helper(dataset):
     a_vals = get_accel_data(dataset) # take acceleration vals from velocity vals
     a_data = a_vals.values.flatten()
-    print(a_data)
-    a_pdf_data = list(Counter(a_data).values()) # count to make imperical pdf
-    # print(pdf_data)
+    a_pdf_data = (Counter(a_data).values()) # count to make imperical pdf
     total = sum(a_pdf_data)
-    a_pdf_data = [value / total for value in a_pdf_data]
-    return a_pdf_data
+    a_pdf = [value / total for value in a_pdf_data]
+    return a_pdf
 
 
 def get_accel_pdf(dataset):
-    dataset = pd.DataFrame(np.loadtxt('dataset.txt'))
     bird_v_vals = dataset[:10]
-    plane_v_vals = dataset[10:] 
-    bird_pdf_data = get_accel_helper(bird_v_vals) 
-    plane_pdf_data = get_accel_helper(plane_v_vals)
-    bird_pdf = FourierFunction(bird_pdf_data)
-    plane_pdf = FourierFunction(plane_pdf_data)
-    return bird_pdf, plane_pdf
+    plane_v_vals = dataset[10:]
+    bird_a_pdf = get_accel_helper(bird_v_vals) 
+    plane_a_pdf = get_accel_helper(plane_v_vals)
+    return bird_a_pdf, plane_a_pdf
+
+
+def naive_recursive_bayesian_classifier(v, a, bird_v_pdf, plane_v_pdf, bird_a_pdf, plane_a_pdf, transition_prob=0.9):
+    """
+    Classify data points using velocity and acceleration likelihoods with recursive Bayesian updating.
+    """
+    classifications = []
+    posteriors = []
+
+    P_bird = 0.5
+    P_plane = 0.5
+
+    for v, a in zip(velocity, acceleration):
+        # Likelihoods
+        P_v_given_bird = bird_v_pdf.pdf(v)
+        P_a_given_bird = bird_a_pdf.pdf(a)
+        P_v_given_plane = plane_v_pdf.pdf(v)
+        P_a_given_plane = plane_a_pdf.pdf(a)
+
+        # Posteriors
+        P_bird_given_data = P_v_given_bird * P_a_given_bird * P_bird
+        P_plane_given_data = P_v_given_plane * P_a_given_plane * P_plane
+
+        # Normalize
+        total = P_bird_given_data + P_plane_given_data
+        P_bird_given_data /= total
+        P_plane_given_data /= total
+
+        # Update with transition probability
+        P_bird = transition_prob * P_bird_given_data + (1-transition_prob) * P_plane_given_data
+        P_plane = transition_prob * P_plane_given_data + (1-transition_prob) * P_bird_given_data
+
+        # Classify
+        classification = 'b' if P_bird > P_plane else 'a'
+        classifications.append(classification)
+        posteriors.append((P_bird, P_plane))
+
+    return classifications, posteriors
+
+
+
+
+
 
 
 if __name__ == '__main__':
     # MAKE VELOCITY PDFS------------------------------------------------------------------------------------------------
-    likelihood = np.loadtxt('likelihood.txt')
-    bird_v_data = likelihood[0]
-    plane_v_data = likelihood[1]
-    bird_v_pdf = FourierFunction(bird_v_data)
-    plane_v_pdf = FourierFunction(plane_v_data)
+    likelihood = pd.DataFrame(np.loadtxt('likelihood.txt'))
+    bird_v_pdf = likelihood[:1].values.flatten()
+    plane_v_pdf = likelihood[1:].values.flatten()
 
     # USING TRAINING VELOCITY DATA MAKE ACCELERATION PDF----------------------------------------------------------------
-    dataset = pd.DataFrame(np.loadtxt('dataset.txt'))
+    dataset = pd.DataFrame(np.loadtxt('dataset.txt')).round(0)
     dataset = dataset.fillna(method='ffill', axis=1)
     dataset = dataset.fillna(0)
-    bird_pdf, plane_pdf = get_accel_pdf(dataset)
+    data_test = dataset[10:].values.flatten()
 
-    # PAST THIS POINT WE HAVE THE VELOCITY PDF AND ACCELERATION PDF-----------------------------------------------------
-    test_dataset = pd.DataFrame(np.loadtxt('testing.txt'))
-    print(test_dataset)
-    test_dataset = test_dataset.fillna(method='ffill', axis=1)
-    test_dataset = test_dataset.fillna(0)
-    print(test_dataset)
-    test_dataset = test_dataset.round(0)
-    print(test_dataset)
+    bird_a_pdf, plane_a_pdf = get_accel_pdf(dataset)
+
+
+    # PAST THIS POINT WE HAVE BOTH PDFS--------------------------------------------------------------------------------
+
+    results = []
+    for velocity, acceleration in zip(testing_velocity, testing_acceleration):
+        classifications, posteriors = naive_recursive_bayesian_classifier(
+            velocity, acceleration,
+            bird_velocity_likelihood, plane_velocity_likelihood,
+            bird_acceleration_likelihood, plane_acceleration_likelihood
+        )
+        results.append({
+            "classifications": classifications,
+            "track_summary": max(set(classifications), key=classifications.count),  # Majority class
+            "posteriors": posteriors
+        })
