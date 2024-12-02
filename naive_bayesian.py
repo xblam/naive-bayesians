@@ -33,10 +33,6 @@ plane_velocity_list = velocity_pdf[1]
 plt.plot(plane_velocity_list)
 # plt.show()
 
-print(sum(bird_velocity_list))
-print(sum(plane_velocity_list))
-
-
 # GET ACCELERATION PDF------------------------------------------------------------------------------------------------------------------------
 train_data = np.loadtxt('dataset.txt')
 
@@ -64,13 +60,72 @@ def get_acceleration_pdf(velocity_data):
     num_datapoints = len(accel_data)
     accel_pdf = dict(sorted(Counter(accel_data).items()))
     standardized_pdf = divided_dict = {key: value / num_datapoints for key, value in accel_pdf.items()}
-    # print('pdf\n',standardized_pdf)
     return standardized_pdf
 
 # get accel values (they are all postive)
 bird_acceleration_dict = get_acceleration_pdf(bird_train_data)
 plane_acceleration_dict = get_acceleration_pdf(plane_train_data)
 
+# UNABLE TO DIFFERENTIATE BETWEEN ACCELERATION AND VELOCITY WITH ACCELERATION AND VELOCITY ---------------------------------------------------
+# USE FOURIER SERIES TO BOTH BUILD SMOOTHER PDFS, AND TRACK OCCILATIONS SINCE BIRDS OCCILATE SPEEDS MORE
+
+
+# FOURIER ANALYSIS ON THE GIVEN DATA POINTS. RETURNS SMOOTH FUNCTION -------------------------------------------------------------------
+class FourierFunction:
+    def __init__(self, data):
+        self.x = np.arange(len(data))
+        self.data = data
+
+        # Decompose data into Fourier components
+        fft_values = fft(self.data)
+        frequencies = fftfreq(len(self.data), d=1)  # in our data the step time is 1 second. Change if needed
+        num_frequencies = 1000  # change if want more fidelity but 1000 should be fine
+        magnitude = np.abs(fft_values)
+        sorted_indices = np.argsort(magnitude)[::-1]
+        dominant_indices = sorted_indices[:num_frequencies]
+
+        # set up values to reconstruct the function
+        self.amplitudes = []
+        self.phases = []
+        self.frequencies_selected = []
+        for idx in dominant_indices:
+            self.amplitudes.append(np.abs(fft_values[idx]))
+            self.phases.append(np.angle(fft_values[idx]))
+            self.frequencies_selected.append(frequencies[idx])
+
+        # use to normalize since we are dealing with probabilities
+        self.total_area = sum(max(sum(amplitude * np.cos(2 * np.pi * frequency * i + phase) 
+            for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases)),0) 
+            for i in self.x)
+    
+    # call this property to get the approximation at input value
+    def fourier(self, query):
+        result = 0
+
+        # we are not ensuring non-negativity, but should be fine
+        for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
+            result += amplitude * np.cos(2 * np.pi * frequency * query + phase)
+        
+        return result/self.total_area
+
+    # overlay approximation function over original data points for sanity check
+    def show_function(self):
+        """Show the overlay of the original data and Fourier approximation."""
+        fourier_vals = [self.fourier(x) for x in self.x]
+        fourier_vals = (fourier_vals - np.min(fourier_vals)) / (np.sum(fourier_vals))
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.x, self.data, label="datapoints", marker='o', linestyle="none")
+        plt.plot(self.x, fourier_vals, label="fourier approximation", linestyle="-")
+        plt.xlabel("Index")
+        plt.ylabel("Value")
+        plt.title("Fourier Approximation Overlay")
+        plt.legend()
+        plt.show()
+
+    # this is to make it so the instance can be called as a function
+    def __call__(self, query):
+        return self.fourier(query)
 
 # NOW PUT IT ALL TOGETHER IN NAIVE BAYESIAN MODEL---------------------------------------------------------------------------------------
 
@@ -79,12 +134,10 @@ def naive_bayesian(velocity, acceleration):
     classifications = []
     bird_posterior = 0.5
     plane_posterior = 0.5
-    max_vel = int(max(velocity))
-    print(type(max_vel))
-    print(velocity[max_vel])
 
     for vel, acc in zip(velocity, acceleration):
-        # Safely handle vel and acc
+
+        # it turns out that the classification is more accurate if we disregard velocity, but it is a feature that could still be implemented.
         vel = int(vel)
 
         # Check for valid range in PDFs
@@ -94,36 +147,25 @@ def naive_bayesian(velocity, acceleration):
         plane_acceleration_likelihood = plane_acceleration_dict.get(acc, 1e-8)
 
         # Calculate likelihoods
-        bird_likelihood = bird_acceleration_likelihood + bird_velocity_likelihood
-        plane_likelihood = plane_acceleration_likelihood + plane_velocity_likelihood
-        # print('vel', vel)
-        # print('acc', acc)
-        # print('bird vel', bird_velocity_likelihood)
-        # print('plane vel', plane_velocity_likelihood)
-        # print('bird acc', bird_acceleration_likelihood)
-        # print('plane acc', plane_acceleration_likelihood)
-        # print(f'bird probs {bird_likelihood}')
-        # print(f'plane probs {plane_likelihood}')
+        bird_likelihood = bird_acceleration_likelihood
+        plane_likelihood = plane_acceleration_likelihood
 
-        # Update posteriors using transition probabilities
+        # update posteriors using transition probabilities
         bird_posterior = bird_likelihood * (bird_posterior * 0.9 + plane_posterior * 0.1)
         plane_posterior = plane_likelihood * (plane_posterior * 0.9 + bird_posterior * 0.1)
 
-        # we have to normalize or else the values round down to 0 for some reason
+        # we have to normalize
         normalization_factor = bird_posterior + plane_posterior
         if normalization_factor > 0:
             bird_posterior /= normalization_factor
             plane_posterior /= normalization_factor
-        # print(f'bird pos {bird_posterior}')
-        # print(f'plane pos {plane_posterior}')
 
-        # Classify this sample
+
+        # then just classify
         classifications.append('b' if bird_posterior > plane_posterior else 'a')
 
-    # Final classification based on majority vote
+    # and return majority vote
     track_class = 'b' if classifications.count('b') > classifications.count('a') else 'a'
-    print(track_class)
-    
     return classifications, track_class
 
 # NOW BUILD LOOP FOR CLASSIFICATION---------------------------------------------------------------------------------------------------------
@@ -132,20 +174,13 @@ test_data = np.loadtxt('testing.txt')
 test_data = row_fill(test_data)
 test_data = test_data.round(0)
 
-# for i in range(400):
-#     print((i))
 
-
-velocity = test_data[8]
-print(max(velocity))
-
-for velocity in test_data:
+for i, velocity in enumerate(test_data):
     #  load velocity, and mkae sure the the last thing of acceleration is 0
     acceleration = np.diff(velocity)# might have to add one value to the end to match 600?
     acceleration = np.append(acceleration, 0)
     acceleration = np.abs(acceleration)
-    # print(acceleration)
     sample_classifications, track_classification = naive_bayesian(velocity, acceleration)
-    # print("Sample classifications:", sample_classifications)
+    print(f'object {i+1}, class {track_classification}')
 
 

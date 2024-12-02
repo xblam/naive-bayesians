@@ -8,21 +8,25 @@ This is my implementation of naive bayesian models.
 - I am also given a set of 20 data samples, 10 of planes, and 10 of birds, to train my model on them respectively
 - then I am given a dataset of 10 samples, and I must use my bayesian model to guess whether they are recordings of planes or recordings of birds.
 
-## Steps
+## Code Justification and Pitfalls
 
-# fitting line to PDF
-- the first big issue encountered was that there was no distribution function provided. Instead, what we got were data points which indicated the probability that objects going at x speed was a bird or plane.
-- althoguh rounding the input velocities would have worked fine, it would still be better for us to fit a curve to the datapoints for ease of computation, and for future implementations.
-- unfortunately, the functions provided do not follow simple distributions like gaussian or poisson. The best fit was a set of polynomial functions, but this fit was still unsatisfactory.
-- but with this in mind, we can use fourier transformations
+# velocity pdfs
+- my first attempt was to see if I could just classify them by running a naive bayesian on their velocities, by using the provided velocity pdf. This attemp did not work as there was not enough fidelity in the dataset to seperate the models
 
-# Fourier Transformations
-- we can use fourier transforms to fit a line to the datapoints.
+# Acceleration pdfs
+- my second idea was to generate acceleration pdfs from the given dataset. By differentiating through the velocity recordings (after dealing with nans) I could generate a pdf of acceleration values, and use that to refer to as well as velocity
+- however, when running naive bayesian with the acceleration and velocity factored into the likelihood, it turns out that the model was still unabel to differentiate between birds and planes.
 
-First I will just make a naive bayesian model, then I will train the model on the 10 airplane and 10 bird samples, and then I will run the trained sample on the actual data and see what kind of results I get in return.
+# Fourier transforms
+- from observing how birds 'occilate' their velocities much more frequently than planes, I though I could make a statistic that tracks this to differentiate between birds and planes. I wrote up a fourier analysis class that could:
+1. create smooth pdfs
+2. allow me to track occilations through the decomposed waves
+- however, due to my lack on familiarity with fourier transforms, I was unable to use this function to any significant effect.
+
+# Ending solution
+- my ending solution is to simply run the naive bayesian on the acceleration pdf. With this combination, I am able to classify correctly 8 out of 10 objects, which was markedly better than any of my attempts at a more complex way of running the naive bayesian.
 
 
-since the speed of birds can never surpass around the 150 speed mark, we can also just say that if an object is observed to be flying above 150km/h we just call it a plane
-
-
-When ran, this program will give the best score that it can find for each generation that the simulation runs for. User can adjust the number of generations, population, mutation rate, boxes, etc at the top of the program
+## Run Notes
+- When ran, all of the data will automatically be processed, and the final results of the classification will be printed out in terminal.
+- I will almost certainly revisit this project someday to look over where the clasffications might have gone wrong, and to finally fully implement my fourier transforms to track occilations.
