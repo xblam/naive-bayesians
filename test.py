@@ -14,65 +14,6 @@ THOUGHT PROCESS:
 * now run naive bayesian taking into account both the velocity and accelereation likelihoods
 * profit
 '''
-
-# FOURIER ANALYSIS ON THE GIVEN DATA POINTS. RETURNS SMOOTH FUNCTION -------------------------------------------------------------------
-class FourierFunction:
-    def __init__(self, data):
-        self.x = np.arange(len(data))
-        self.data = data
-
-        # Decompose data into Fourier components
-        fft_values = fft(self.data)
-        frequencies = fftfreq(len(self.data), d=1)  # in our data the step time is 1 second. Change if needed
-        num_frequencies = 1000  # change if want more fidelity but 1000 should be fine
-        magnitude = np.abs(fft_values)
-        sorted_indices = np.argsort(magnitude)[::-1]
-        dominant_indices = sorted_indices[:num_frequencies]
-
-        # set up values to reconstruct the function
-        self.amplitudes = []
-        self.phases = []
-        self.frequencies_selected = []
-        for idx in dominant_indices:
-            self.amplitudes.append(np.abs(fft_values[idx]))
-            self.phases.append(np.angle(fft_values[idx]))
-            self.frequencies_selected.append(frequencies[idx])
-
-        # use to normalize since we are dealing with probabilities
-        self.total_area = sum(max(sum(amplitude * np.cos(2 * np.pi * frequency * i + phase) 
-            for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases)),0) 
-            for i in self.x)
-    
-    # call this property to get the approximation at input value
-    def fourier(self, query):
-        result = 0
-
-        # we are not ensuring non-negativity, but should be fine
-        for amplitude, frequency, phase in zip(self.amplitudes, self.frequencies_selected, self.phases):
-            result += amplitude * np.cos(2 * np.pi * frequency * query + phase)
-        
-        return result/self.total_area
-
-    # overlay approximation function over original data points for sanity check
-    def show_function(self):
-        """Show the overlay of the original data and Fourier approximation."""
-        fourier_vals = [self.fourier(x) for x in self.x]
-        fourier_vals = (fourier_vals - np.min(fourier_vals)) / (np.sum(fourier_vals))
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(self.x, self.data, label="datapoints", marker='o', linestyle="none")
-        plt.plot(self.x, fourier_vals, label="fourier approximation", linestyle="-")
-        plt.xlabel("Index")
-        plt.ylabel("Value")
-        plt.title("Fourier Approximation Overlay")
-        plt.legend()
-        plt.show()
-
-    # this is to make it so the instance can be called as a function
-    def __call__(self, query):
-        return self.fourier(query)
-
-
 # takes in datapoints of velocity and then returns datapoints of acceleration
 def get_accel_data(dataset):
     accel_data = dataset.apply(lambda row: row.diff(), axis=1) # differentiate
@@ -97,7 +38,7 @@ def get_accel_pdf(dataset):
     return bird_a_pdf, plane_a_pdf
 
 
-def naive_recursive_bayesian_classifier(v, a, bird_v_pdf, plane_v_pdf, bird_a_pdf, plane_a_pdf, transition_prob=0.9):
+def naive_recursive_bayesian_classifier(velocity, acceleration, bird_v_pdf, plane_v_pdf, bird_a_pdf, plane_a_pdf, transition_prob=0.9):
     """
     Classify data points using velocity and acceleration likelihoods with recursive Bayesian updating.
     """
@@ -108,11 +49,13 @@ def naive_recursive_bayesian_classifier(v, a, bird_v_pdf, plane_v_pdf, bird_a_pd
     P_plane = 0.5
 
     for v, a in zip(velocity, acceleration):
+        v = int(v)
+        a = int(a)
         # Likelihoods
-        P_v_given_bird = bird_v_pdf.pdf(v)
-        P_a_given_bird = bird_a_pdf.pdf(a)
-        P_v_given_plane = plane_v_pdf.pdf(v)
-        P_a_given_plane = plane_a_pdf.pdf(a)
+        P_v_given_bird = bird_v_pdf[v]
+        P_a_given_bird = bird_a_pdf[a]
+        P_v_given_plane = plane_v_pdf[v]
+        P_a_given_plane = plane_a_pdf[a]
 
         # Posteriors
         P_bird_given_data = P_v_given_bird * P_a_given_bird * P_bird
@@ -156,16 +99,35 @@ if __name__ == '__main__':
 
 
     # PAST THIS POINT WE HAVE BOTH PDFS--------------------------------------------------------------------------------
+    testing_dataset = pd.DataFrame(np.loadtxt('testing.txt')).round(0)
+    velocity_recordings = testing_dataset.fillna(method='ffill', axis=1)
+    acceleration_recordings = get_accel_data(velocity_recordings)
+    # for i in range(10):
+    obj_velocity = velocity_recordings.iloc[0]
+    obj_acceleration = acceleration_recordings.iloc[0]
+    print(naive_recursive_bayesian_classifier(obj_velocity, obj_acceleration, bird_v_pdf, plane_v_pdf, bird_a_pdf, plane_a_pdf))
+        
+    # testing_dataset = testing_dataset.fillna(0)
+    # velocity_data = testing_dataset.iloc[0]
 
-    results = []
-    for velocity, acceleration in zip(testing_velocity, testing_acceleration):
-        classifications, posteriors = naive_recursive_bayesian_classifier(
-            velocity, acceleration,
-            bird_velocity_likelihood, plane_velocity_likelihood,
-            bird_acceleration_likelihood, plane_acceleration_likelihood
-        )
-        results.append({
-            "classifications": classifications,
-            "track_summary": max(set(classifications), key=classifications.count),  # Majority class
-            "posteriors": posteriors
-        })
+    # print(velocity_data.shape)
+
+    # acceleration_data = get_accel_data(velocity_data)
+    # print(acceleration_data)
+
+
+
+    # naive_recursive_bayesian_classifier(v, a, bird_v_pdf, plane_v_pdf, bird_a_pdf, plane_a_pdf, transition_prob=0.9):
+    
+    # results = []
+    # for velocity, acceleration in zip(testing_velocity, testing_acceleration):
+    #     classifications, posteriors = naive_recursive_bayesian_classifier(
+    #         velocity, acceleration,
+    #         bird_velocity_likelihood, plane_velocity_likelihood,
+    #         bird_acceleration_likelihood, plane_acceleration_likelihood
+    #     )
+    #     results.append({
+    #         "classifications": classifications,
+    #         "track_summary": max(set(classifications), key=classifications.count),  # Majority class
+    #         "posteriors": posteriors
+    #     })
