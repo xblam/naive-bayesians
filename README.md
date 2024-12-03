@@ -26,6 +26,11 @@ This is my implementation of naive bayesian models.
 # Ending solution
 - my ending solution is to simply run the naive bayesian on the acceleration pdf. With this combination, I am able to classify correctly 8 out of 10 objects, which was markedly better than any of my attempts at a more complex way of running the naive bayesian.
 
+# Hypothesized issue
+- i believe the greatest weakness of my current setup lies in how the distributions of planes and birds are too overlapped, so if there is a slow plane, the bayesian model will always classify it as a bird if I just use velocity values
+- likewise, since the acceleration values for planes is so spread out (centered around 0, but then there are some very large outliers), I am unable to effectly use accelerations to "seperate" the values in the bayesian likelihood calculation. Unfortunately, combining these two statistics also does not tend to help, as they are typically of different magnitudes, and their combination is rendered uneffective. 
+- I was thinking of normalizing the individual likelihoods so that prob_v(plane) and prob_v(bird) added to 1 for both velocity and acceleration, but this also did not show any significant improvement.
+
 
 ## Run Notes
 - When ran, all of the data will automatically be processed, and the final results of the classification will be printed out in terminal.
